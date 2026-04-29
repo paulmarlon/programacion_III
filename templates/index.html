@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Inventario de Material de Escritorio - Buscador</title>
+    <script src="https://cdn.jsdelivr.net/npm/vue@2/dist/vue.js"></script>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 20px; color: #333; }
+        .container { max-width: 900px; margin: auto; }
+        .filtros, .formulario-registro { background: #f4f7f6; padding: 20px; border-radius: 8px; margin-bottom: 20px; border: 1px solid #e0e0e0; }
+        .filtros input, .formulario-registro input { margin: 5px; padding: 10px; border: 1px solid #ccc; border-radius: 4px; }
+        
+        /* Ajuste de anchos para inputs */
+        .filtros input { width: calc(33% - 22px); }
+        .formulario-registro input { width: calc(25% - 22px); }
+        
+        button { padding: 10px 20px; background: #2c3e50; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; }
+        button:hover { background: #34495e; }
+        .btn-success { background: #27ae60; margin-top: 10px; width: 100%; }
+        .btn-success:hover { background: #2ecc71; }
+
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+        th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
+        th { background: #2c3e50; color: white; }
+        tr:nth-child(even) { background-color: #f9f9f9; }
+        
+        .error { color: #e74c3c; margin-top: 10px; font-weight: bold; }
+        .success-msg { color: #27ae60; margin-top: 10px; font-weight: bold; }
+        .loading { font-style: italic; color: #7f8c8d; }
+    </style>
+</head>
+<body>
+
+<div class="container" id="app">
+    <h1>📚 Inventario de Material de Escritorio</h1>
+
+    <div class="formulario-registro">
+        <h3>Registrar Nuevo Producto</h3>
+        <form @submit.prevent="agregarProducto">
+            <input v-model="nuevoProducto.nombre" placeholder="Nombre (ej. Tijeras)" required>
+            <input v-model="nuevoProducto.marca" placeholder="Marca (ej. Maped)" required>
+            <input type="number" v-model="nuevoProducto.precio" placeholder="Precio (Bs)" step="0.01" min="0" required>
+            <input type="number" v-model="nuevoProducto.unidades" placeholder="Unidades" min="0" required>
+            <button type="submit" class="btn-success">📥 Guardar en Inventario</button>
+        </form>
+        <div v-if="mensajeExito" class="success-msg">{{ mensajeExito }}</div>
+    </div>
+
+    <hr>
+
+<div class="filtros">
+        <h3>Búsqueda avanzada y Ordenamiento</h3>
+        <input type="text" v-model="filtros.nombre" placeholder="Nombre (ej. Lápiz)">
+        <input type="text" v-model="filtros.marca" placeholder="Marca (ej. Bic)">
+        <input type="number" v-model="filtros.precio_min" placeholder="Precio mínimo">
+        <input type="number" v-model="filtros.precio_max" placeholder="Precio máximo">
+        <input type="number" v-model="filtros.unidades_min" placeholder="Unidades mínimas">
+        
+        <div style="margin-top: 10px;">
+            <label>Ordenar por:</label>
+            <select v-model="filtros.sort_by" style="padding: 10px; border-radius: 4px;">
+                <option value="nombre">Nombre</option>
+                <option value="marca">Marca</option>
+                <option value="precio">Precio</option>
+                <option value="unidades">Unidades</option>
+                <option value="id">ID</option>
+            </select>
+
+            <select v-model="filtros.order" style="padding: 10px; border-radius: 4px;">
+                <option value="asc">Ascendente (A-Z / Menor a Mayor)</option>
+                <option value="desc">Descendente (Z-A / Mayor a Menor)</option>
+            </select>
+
+            <button @click="buscarProductos">🔍 Buscar y Ordenar</button>
+        </div>
+    </div>
+
+    <div v-if="cargando" class="loading">Cargando productos...</div>
+    <div v-if="error" class="error">{{ error }}</div>
+
+    <div v-if="resultados.length > 0">
+        <p><strong>{{ cantidad }} producto(s) encontrado(s)</strong></p>
+        <table>
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Nombre</th>
+                    <th>Marca</th>
+                    <th>Precio (Bs)</th>
+                    <th>Unidades</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% raw %}
+                <tr v-for="prod in resultados" :key="prod.id">
+                    <td>{{ prod.id }}</td>
+                    <td>{{ prod.nombre }}</td>
+                    <td>{{ prod.marca }}</td>
+                    <td>{{ prod.precio.toFixed(2) }}</td>
+                    <td>{{ prod.unidades }}</td>
+                </tr>
+                {% endraw %}
+            </tbody>
+        </table>
+    </div>
+
+    <div v-else-if="!cargando && buscado && resultados.length === 0">
+        <p>No se encontraron productos con esos criterios.</p>
+    </div>
+</div>
+
+<script>
+    new Vue({
+        el: '#app',
+        data: {
+            // Datos para el formulario de registro
+            nuevoProducto: {
+                nombre: '',
+                marca: '',
+                precio: '',
+                unidades: ''
+            },
+            mensajeExito: '',
+            
+            // Datos para la búsqueda
+            filtros: {
+                nombre: '',
+                marca: '',
+                precio_min: '',
+                precio_max: '',
+                unidades_min: '',
+                sort_by: 'nombre', // Valor por defecto
+                order: 'asc'       // Valor por defecto
+            },
+            resultados: [],
+            cantidad: 0,
+            cargando: false,
+            error: null,
+            buscado: false
+        },
+        methods: {
+            agregarProducto() {
+                this.error = null;
+                this.mensajeExito = '';
+
+                fetch('/api/productos', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(this.nuevoProducto)
+                })
+                .then(response => {
+                    if (!response.ok) {
+                        return response.json().then(err => { throw new Error(err.error) });
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    this.mensajeExito = '✅ Producto registrado correctamente.';
+                    this.nuevoProducto = { nombre: '', marca: '', precio: '', unidades: '' };
+                    this.buscarProductos(); // Refrescar lista
+                })
+                .catch(err => {
+                    this.error = 'Error al registrar: ' + err.message;
+                });
+            },
+
+            buscarProductos() {
+                this.cargando = true;
+                this.error = null;
+                this.buscado = true;
+
+                const params = new URLSearchParams();
+                
+                // Aplicar filtros si tienen valor
+                if (this.filtros.nombre) params.append('nombre', this.filtros.nombre);
+                if (this.filtros.marca) params.append('marca', this.filtros.marca);
+                if (this.filtros.precio_min !== '') params.append('precio_min', this.filtros.precio_min);
+                if (this.filtros.precio_max !== '') params.append('precio_max', this.filtros.precio_max);
+                if (this.filtros.unidades_min !== '') params.append('unidades_min', this.filtros.unidades_min);
+
+                // IMPORTANTE: Enviar ordenamiento
+                params.append('sort_by', this.filtros.sort_by);
+                params.append('order', this.filtros.order);
+
+                const url = `/api/productos?${params.toString()}`;
+
+                fetch(url)
+                    .then(response => {
+                        if (!response.ok) {
+                            return response.json().then(err => { throw new Error(err.error) });
+                        }
+                        return response.json();
+                    })
+                    .then(data => {
+                        this.resultados = data.productos;
+                        this.cantidad = data.cantidad;
+                    })
+                    .catch(err => {
+                        this.error = err.message || 'Error de conexión con el servidor.';
+                        this.resultados = [];
+                        this.cantidad = 0;
+                    })
+                    .finally(() => {
+                        this.cargando = false;
+                    });
+            }
+        },
+        mounted() {
+            // Carga inicial al abrir la página
+            this.buscarProductos();
+        }
+    });
+</script>
+
+</body>
+</html>
